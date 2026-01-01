@@ -1,0 +1,34 @@
+{
+  "id": "com.mattermost.auto-archiver",
+  "name": "Auto Archiver",
+  "description": "This plugin serves as a starting point for writing a Mattermost plugin.",
+  "homepage_url": "https://github.com/mattermost/mattermost-plugin-starter-template",
+  "support_url": "https://github.com/mattermost/mattermost-plugin-starter-template/issues",
+  "icon_path": "assets/auto-archiver-icon.svg",
+  "version": "",
+  "min_server_version": "6.2.1",
+  "server": {
+    "executables": {
+      "darwin-amd64": "server/dist/plugin-darwin-amd64",
+      "darwin-arm64": "server/dist/plugin-darwin-arm64",
+      "linux-amd64": "server/dist/plugin-linux-amd64",
+      "linux-arm64": "server/dist/plugin-linux-arm64",
+      "windows-amd64": "server/dist/plugin-windows-amd64.exe"
+    },
+    "executable": ""
+  },
+  "webapp": {
+    "bundle_path": "webapp/dist/main.js"
+  },
+  "settings_schema": {
+    "header": "",
+    "footer": "",
+    "settings": [],
+    "sections": null
+  },
+  "props": {
+    "pluginctl": {
+      "version": "v0.0.0-20250911075542-f66ccd529bb2"
+    }
+  }
+}
