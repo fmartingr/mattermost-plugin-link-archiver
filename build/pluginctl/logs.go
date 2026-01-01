@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"slices"
 	"strings"
@@ -85,24 +84,24 @@ func watchLogs(ctx context.Context, client *model.Client4, pluginID string) erro
 
 // checkOldestEntry check a if logs contains new log entries.
 // It returns the filtered slice of log entries, the new oldest entry and whether or not all entries were new.
-func checkOldestEntry(logs []string, oldest string) ([]string, string, bool) {
+func checkOldestEntry(logs []string, oldest string) (filtered []string, newOldest string, allNew bool) {
 	if len(logs) == 0 {
 		return nil, oldest, false
 	}
 
-	newOldestEntry := logs[(len(logs) - 1)]
+	newOldest = logs[(len(logs) - 1)]
 
 	i := slices.Index(logs, oldest)
 	switch i {
 	case -1:
 		// Every log entry is new
-		return logs, newOldestEntry, true
+		return logs, newOldest, true
 	case len(logs) - 1:
 		// No new log entries
 		return nil, oldest, false
 	default:
 		// Filter out oldest log entry
-		return logs[i+1:], newOldestEntry, false
+		return logs[i+1:], newOldest, false
 	}
 }
 
@@ -163,7 +162,7 @@ func filterLogEntries(logs []string, pluginID string, since time.Time) ([]string
 // printLogEntries prints a slice of log entries to stdout.
 func printLogEntries(entries []string) error {
 	for _, e := range entries {
-		_, err := io.WriteString(os.Stdout, e+"\n")
+		_, err := os.Stdout.WriteString(e + "\n")
 		if err != nil {
 			return fmt.Errorf("failed to write log entry to stdout: %w", err)
 		}
@@ -178,7 +177,8 @@ func checkJSONLogsSetting(ctx context.Context, client *model.Client4) error {
 		return fmt.Errorf("failed to fetch config: %w", err)
 	}
 	if cfg.LogSettings.FileJson == nil || !*cfg.LogSettings.FileJson {
-		return errors.New("JSON output for file logs are disabled. Please enable LogSettings.FileJson via the configration in Mattermost.") //nolint:revive,stylecheck
+		//nolint:revive,stylecheck,staticcheck // Error message must match Mattermost's expected format
+		return errors.New("JSON output for file logs are disabled. Please enable LogSettings.FileJson via the configuration in Mattermost")
 	}
 
 	return nil

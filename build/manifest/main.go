@@ -169,7 +169,7 @@ func applyManifest(manifest *model.Manifest) error {
 		if err := os.WriteFile(
 			"server/manifest.go",
 			[]byte(fmt.Sprintf(pluginIDGoFileTemplate, manifestStr)),
-			0600,
+			0o600,
 		); err != nil {
 			return errors.Wrap(err, "failed to write server/manifest.go")
 		}
@@ -192,7 +192,7 @@ func applyManifest(manifest *model.Manifest) error {
 		if err := os.WriteFile(
 			"webapp/src/manifest.ts",
 			[]byte(fmt.Sprintf(pluginIDJSFileTemplate, manifestStr)),
-			0600,
+			0o600,
 		); err != nil {
 			return errors.Wrap(err, "failed to open webapp/src/manifest.ts")
 		}
@@ -208,7 +208,7 @@ func distManifest(manifest *model.Manifest) error {
 		return err
 	}
 
-	if err := os.WriteFile(fmt.Sprintf("dist/%s/plugin.json", manifest.Id), manifestBytes, 0600); err != nil {
+	if err := os.WriteFile(fmt.Sprintf("dist/%s/plugin.json", manifest.Id), manifestBytes, 0o600); err != nil {
 		return errors.Wrap(err, "failed to write plugin.json")
 	}
 

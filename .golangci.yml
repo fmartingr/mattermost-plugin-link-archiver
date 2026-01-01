@@ -68,7 +68,7 @@ formatters:
 
     goimports:
       local-prefixes:
-        - git.nakama.town/fmartingr/mattermost-plugin-auto-archiver
+        - github.com/fmartingrmattermost-plugin-link-archiver
 
 output:
   formats:

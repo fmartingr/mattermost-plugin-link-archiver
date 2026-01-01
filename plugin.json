@@ -1,11 +1,11 @@
 {
-  "id": "com.mattermost.auto-archiver",
-  "name": "Auto Archiver",
-  "description": "This plugin serves as a starting point for writing a Mattermost plugin.",
-  "homepage_url": "https://github.com/mattermost/mattermost-plugin-starter-template",
-  "support_url": "https://github.com/mattermost/mattermost-plugin-starter-template/issues",
-  "icon_path": "assets/auto-archiver-icon.svg",
-  "version": "",
+  "id": "com.mattermost.link-archiver",
+  "name": "Link Archiver",
+  "description": "Automatically archives links posted to Mattermost channels. Supports multiple archival methods configurable by MIME type.",
+  "homepage_url": "https://github.com/fmartingrmattermost-plugin-link-archiver",
+  "support_url": "https://github.com/fmartingrmattermost-plugin-link-archiver/issues",
+  "icon_path": "assets/icon.png",
+  "version": "0.1.0",
   "min_server_version": "6.2.1",
   "server": {
     "executables": {
@@ -21,10 +21,16 @@
     "bundle_path": "webapp/dist/main.js"
   },
   "settings_schema": {
-    "header": "",
-    "footer": "",
-    "settings": [],
-    "sections": null
+    "header": "Configure the Link Archiver plugin. Set up MIME type mappings to specify which archival tool to use for different content types.",
+    "footer": "For detailed configuration of MIME type mappings, use the admin settings UI.",
+    "settings": [
+      {
+        "key": "MimeTypeMappings",
+        "display_name": "MIME Type Mappings",
+        "type": "custom",
+        "help_text": "Configure which archival tool to use for different MIME types. Use wildcards like 'image/*' to match all image types."
+      }
+    ]
   },
   "props": {
     "pluginctl": {

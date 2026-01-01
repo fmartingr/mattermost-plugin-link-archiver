@@ -26,7 +26,7 @@ func setupTest() *env {
 }
 
 func TestHelloCommand(t *testing.T) {
-	assert := assert.New(t)
+	a := assert.New(t)
 	env := setupTest()
 
 	env.api.On("RegisterCommand", &model.Command{
@@ -42,6 +42,6 @@ func TestHelloCommand(t *testing.T) {
 		Command: "/hello world",
 	}
 	response, err := cmdHandler.Handle(args)
-	assert.Nil(err)
-	assert.Equal("Hello, world", response.Text)
+	a.Nil(err)
+	a.Equal("Hello, world", response.Text)
 }
