@@ -50,16 +50,19 @@ func (t *ThreadReplyService) ReplyWithAttachment(postID, fileID, url, filename, 
 	// If originalPostID is provided and different from current post, add link to original post
 	if originalPostID != "" && originalPostID != postID {
 		// Get the original post to construct the permalink
-		originalPost, appErr := t.api.GetPost(originalPostID)
+		var originalPost *model.Post
+		originalPost, appErr = t.api.GetPost(originalPostID)
 		if appErr == nil && originalPost != nil {
 			// Get the channel to find the team
-			channel, appErr := t.api.GetChannel(originalPost.ChannelId)
+			var channel *model.Channel
+			channel, appErr = t.api.GetChannel(originalPost.ChannelId)
 			if appErr == nil && channel != nil {
 				var permalink string
 				// For team channels, include team name in permalink: /<team-name>/pl/<post-id>
 				// For DM/GM channels, use simple format: /pl/<post-id>
 				if channel.TeamId != "" {
-					team, appErr := t.api.GetTeam(channel.TeamId)
+					var team *model.Team
+					team, appErr = t.api.GetTeam(channel.TeamId)
 					if appErr == nil && team != nil {
 						permalink = fmt.Sprintf("/%s/pl/%s", team.Name, originalPostID)
 					} else {
