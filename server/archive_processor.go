@@ -120,7 +120,7 @@ func (p *ArchiveProcessor) processURL(postID, url string, config *configuration)
 				metadata := p.storageService.CreateMetadataForExistingFile(postID, url, existingArchive)
 
 				// Create thread reply with existing file (include original post ID)
-				if err := p.threadReplyService.ReplyWithAttachment(
+				if err = p.threadReplyService.ReplyWithAttachment(
 					postID,
 					metadata.FileID,
 					url,
@@ -134,7 +134,7 @@ func (p *ArchiveProcessor) processURL(postID, url string, config *configuration)
 				}
 
 				// Store per-post metadata
-				if err := p.storageService.StoreArchiveMetadata(metadata); err != nil {
+				if err = p.storageService.StoreArchiveMetadata(metadata); err != nil {
 					p.api.LogError("Failed to store archive metadata", "error", err.Error())
 				}
 
@@ -152,7 +152,8 @@ func (p *ArchiveProcessor) processURL(postID, url string, config *configuration)
 		mimeType = urlMetadata.MimeType
 	} else {
 		// Fallback to full detection
-		detectedMimeType, err := p.contentDetector.DetectMimeType(url)
+		var detectedMimeType string
+		detectedMimeType, err = p.contentDetector.DetectMimeType(url)
 		if err != nil {
 			p.api.LogError("Failed to detect MIME type", "url", url, "error", err.Error())
 			// Reply with error in thread
@@ -167,7 +168,7 @@ func (p *ArchiveProcessor) processURL(postID, url string, config *configuration)
 	// Find the appropriate archival tool
 	toolName := p.findArchivalTool(mimeType, config)
 	if toolName == "" {
-		err := fmt.Errorf("no archival tool found for MIME type: %s", mimeType)
+		err = fmt.Errorf("no archival tool found for MIME type: %s", mimeType)
 		p.api.LogWarn("No archival tool found for MIME type", "mimeType", mimeType, "url", url)
 		// Reply with error in thread
 		if replyErr := p.threadReplyService.ReplyWithError(postID, url, err); replyErr != nil {
@@ -185,7 +186,7 @@ func (p *ArchiveProcessor) processURL(postID, url string, config *configuration)
 	// Get the archival tool
 	tool, ok := p.archivalTools[toolName]
 	if !ok {
-		err := fmt.Errorf("archival tool not found: %s", toolName)
+		err = fmt.Errorf("archival tool not found: %s", toolName)
 		p.api.LogError("Archival tool not found", "toolName", toolName)
 		// Reply with error in thread
 		if replyErr := p.threadReplyService.ReplyWithError(postID, url, err); replyErr != nil {
@@ -221,7 +222,7 @@ func (p *ArchiveProcessor) processURL(postID, url string, config *configuration)
 			}
 
 			// Create thread reply with existing file (include original post ID)
-			if err := p.threadReplyService.ReplyWithAttachment(
+			if err = p.threadReplyService.ReplyWithAttachment(
 				postID,
 				metadata.FileID,
 				url,
@@ -235,7 +236,7 @@ func (p *ArchiveProcessor) processURL(postID, url string, config *configuration)
 			}
 
 			// Store per-post metadata
-			if err := p.storageService.StoreArchiveMetadata(metadata); err != nil {
+			if err = p.storageService.StoreArchiveMetadata(metadata); err != nil {
 				p.api.LogError("Failed to store archive metadata", "error", err.Error())
 			}
 
@@ -243,7 +244,7 @@ func (p *ArchiveProcessor) processURL(postID, url string, config *configuration)
 			if urlMetadata != nil && urlMetadata.ETag != "" {
 				existingArchive.ETag = urlMetadata.ETag
 				existingArchive.ArchivedAt = time.Now()
-				if err := p.storageService.StoreGlobalArchiveMetadata(existingArchive); err != nil {
+				if err = p.storageService.StoreGlobalArchiveMetadata(existingArchive); err != nil {
 					p.api.LogWarn("Failed to update global archive metadata", "error", err.Error())
 				}
 			}
@@ -272,7 +273,7 @@ func (p *ArchiveProcessor) processURL(postID, url string, config *configuration)
 	}
 
 	// Create thread reply with attachment (no original post since this is a new archive)
-	if err := p.threadReplyService.ReplyWithAttachment(
+	if err = p.threadReplyService.ReplyWithAttachment(
 		postID,
 		metadata.FileID,
 		url,
@@ -286,13 +287,13 @@ func (p *ArchiveProcessor) processURL(postID, url string, config *configuration)
 	}
 
 	// Store per-post metadata
-	if err := p.storageService.StoreArchiveMetadata(metadata); err != nil {
+	if err = p.storageService.StoreArchiveMetadata(metadata); err != nil {
 		p.api.LogError("Failed to store archive metadata", "error", err.Error())
 		// Don't return - file is already stored and reply is created
 	}
 
 	// Store global metadata (most recent archive for this URL)
-	if err := p.storageService.StoreGlobalArchiveMetadata(metadata); err != nil {
+	if err = p.storageService.StoreGlobalArchiveMetadata(metadata); err != nil {
 		p.api.LogWarn("Failed to store global archive metadata", "error", err.Error())
 		// Don't return - per-post metadata is stored
 	}

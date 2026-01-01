@@ -31,10 +31,5 @@
         "help_text": "Configure which archival tool to use for different MIME types. Use wildcards like 'image/*' to match all image types."
       }
     ]
-  },
-  "props": {
-    "pluginctl": {
-      "version": "v0.0.0-20250911075542-f66ccd529bb2"
-    }
   }
 }
