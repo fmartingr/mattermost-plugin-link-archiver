@@ -79,6 +79,7 @@ const AdminSettingsWrapper: React.FC<CustomSettingProps> = ({id, value, onChange
                     archivalTool: rule.archivalTool,
                 };
             }
+
             // Fallback - shouldn't happen
             return {
                 kind: 'mimetype',

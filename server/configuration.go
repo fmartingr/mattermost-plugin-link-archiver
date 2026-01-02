@@ -20,8 +20,8 @@ import (
 // copy appropriate for your types.
 type ArchivalRule struct {
 	Kind         string `json:"kind"`         // "hostname" or "mimetype"
-	Pattern      string `json:"pattern"`       // Pattern value (e.g., "*.example.com" or "image/*")
-	ArchivalTool string `json:"archivalTool"`  // e.g., "direct_download"
+	Pattern      string `json:"pattern"`      // Pattern value (e.g., "*.example.com" or "image/*")
+	ArchivalTool string `json:"archivalTool"` // e.g., "direct_download"
 }
 
 type configuration struct {
@@ -140,8 +140,8 @@ func (p *Plugin) OnConfigurationChange() error {
 		// The custom setting value is a JSON string containing the full config
 		// Try to parse as new format first (archivalRules), then fall back to old format (mimeTypeMappings) for migration
 		var customConfig struct {
-			ArchivalRules       []ArchivalRule `json:"archivalRules"`
-			MimeTypeMappings    []struct {
+			ArchivalRules    []ArchivalRule `json:"archivalRules"`
+			MimeTypeMappings []struct {
 				MimeTypePattern string `json:"mimeTypePattern"`
 				ArchivalTool    string `json:"archivalTool"`
 			} `json:"mimeTypeMappings"` // For backward compatibility

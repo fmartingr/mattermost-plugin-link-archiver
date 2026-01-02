@@ -100,8 +100,8 @@ func (p *Plugin) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var requestConfig struct {
-		ArchivalRules       []ArchivalRule `json:"archivalRules"`
-		MimeTypeMappings    []struct {
+		ArchivalRules    []ArchivalRule `json:"archivalRules"`
+		MimeTypeMappings []struct {
 			MimeTypePattern string `json:"mimeTypePattern"`
 			ArchivalTool    string `json:"archivalTool"`
 		} `json:"mimeTypeMappings"` // For backward compatibility

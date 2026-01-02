@@ -159,6 +159,7 @@ const AdminSettings: React.FC<Props> = ({config, setConfig, archivalTools, disab
 
     const handleAddRule = () => {
         const defaultTool = archivalTools.length > 0 ? archivalTools[0] : 'do_nothing';
+
         // Add rule before the last one (which is the default)
         const rules = [...localConfig.archivalRules];
         const defaultRule = rules.pop() || {kind: 'mimetype' as const, pattern: '', archivalTool: 'do_nothing'};
@@ -193,6 +194,7 @@ const AdminSettings: React.FC<Props> = ({config, setConfig, archivalTools, disab
             ...newRules[index],
             [field]: value,
         };
+
         // If updating the default rule's tool, also update defaultArchivalTool
         const isDefault = index === newRules.length - 1;
         const newConfig = {
@@ -249,9 +251,18 @@ const AdminSettings: React.FC<Props> = ({config, setConfig, archivalTools, disab
                             {localConfig.archivalRules.map((rule, index) => {
                                 const isDefault = index === localConfig.archivalRules.length - 1;
                                 const hasPattern = rule.pattern && rule.pattern.trim() !== '';
-                                const placeholder = rule.kind === 'hostname' ? 'e.g., *.example.com' : isDefault ? 'Default (always matches)' : 'e.g., image/*';
+                                let placeholder = 'e.g., image/*';
+                                if (rule.kind === 'hostname') {
+                                    placeholder = 'e.g., *.example.com';
+                                } else if (isDefault) {
+                                    placeholder = 'Default (always matches)';
+                                }
+                                const rowStyle = isDefault ? {backgroundColor: '#f9f9f9'} : {};
                                 return (
-                                    <tr key={index} style={isDefault ? {backgroundColor: '#f9f9f9'} : {}}>
+                                    <tr
+                                        key={index}
+                                        style={rowStyle}
+                                    >
                                         <td style={styles.tableCell}>
                                             {isDefault ? (
                                                 <span style={{color: '#666', fontSize: '12px'}}>{'Default'}</span>
@@ -308,7 +319,7 @@ const AdminSettings: React.FC<Props> = ({config, setConfig, archivalTools, disab
                                                         type='text'
                                                         style={{
                                                             ...styles.tableInput,
-                                                            ...(!hasPattern ? {borderColor: '#d32f2f'} : {}),
+                                                            ...(hasPattern === false ? {borderColor: '#d32f2f'} : {}),
                                                         }}
                                                         value={rule.pattern}
                                                         onChange={(e) => handleUpdateRule(index, 'pattern', e.target.value)}
@@ -319,7 +330,10 @@ const AdminSettings: React.FC<Props> = ({config, setConfig, archivalTools, disab
                                             </>
                                         )}
                                         {isDefault && (
-                                            <td colSpan={2} style={styles.tableCell}>
+                                            <td
+                                                colSpan={2}
+                                                style={styles.tableCell}
+                                            >
                                                 <span style={{color: '#666', fontSize: '12px', fontStyle: 'italic'}}>{'Default rule (always matches)'}</span>
                                             </td>
                                         )}

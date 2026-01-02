@@ -19,7 +19,9 @@ const ObeliskFilePreview: React.FC<Props> = (props) => {
 
         // Method 2: Check for fileInfos (plural) as fallback
         if (props && 'fileInfos' in props) {
+            // eslint-disable-next-line react/prop-types
             const fileInfos = (props as any).fileInfos;
+            // eslint-disable-next-line react/prop-types
             if (Array.isArray(fileInfos) && fileInfos.length > 0) {
                 return fileInfos[0];
             } else if (fileInfos && typeof fileInfos === 'object' && !Array.isArray(fileInfos)) {
