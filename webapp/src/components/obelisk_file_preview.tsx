@@ -1,16 +1,41 @@
-import React, {useState, useEffect, useRef} from 'react';
+import React, {useState, useEffect, useRef, useMemo} from 'react';
 
 import type {FileInfo} from '@mattermost/types/files';
 import type {Post} from '@mattermost/types/posts';
 
 type Props = {
-    fileInfos: FileInfo[] | FileInfo;
+    fileInfo: FileInfo;
     post: Post;
 };
 
 const ObeliskFilePreview: React.FC<Props> = (props) => {
-    // Mattermost might pass props differently - try multiple ways to get fileInfos
-    const fileInfos = props.fileInfos;
+    // Mattermost passes fileInfo (singular) and post as props
+    // Try multiple ways to get fileInfo in case Mattermost passes it differently
+    const fileInfo = useMemo(() => {
+        // Method 1: Direct prop access (expected way)
+        if (props && 'fileInfo' in props && props.fileInfo) {
+            return props.fileInfo;
+        }
+
+        // Method 2: Check for fileInfos (plural) as fallback
+        if (props && 'fileInfos' in props) {
+            const fileInfos = (props as any).fileInfos;
+            if (Array.isArray(fileInfos) && fileInfos.length > 0) {
+                return fileInfos[0];
+            } else if (fileInfos && typeof fileInfos === 'object' && !Array.isArray(fileInfos)) {
+                return fileInfos as FileInfo;
+            }
+        }
+
+        // Method 3: Props might be the fileInfo directly
+        if (props && typeof props === 'object' && !Array.isArray(props)) {
+            if ('id' in props && 'name' in props) {
+                return props as unknown as FileInfo;
+            }
+        }
+
+        return null;
+    }, [props]);
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -19,18 +44,6 @@ const ObeliskFilePreview: React.FC<Props> = (props) => {
 
     useEffect(() => {
         const loadFile = async () => {
-            // Get the first file (we only handle one archived file per post)
-            let fileInfo: FileInfo | null = null;
-
-            if (Array.isArray(fileInfos) && fileInfos.length > 0) {
-                fileInfo = fileInfos[0];
-            } else if (fileInfos && typeof fileInfos === 'object' && fileInfos !== null && !Array.isArray(fileInfos)) {
-                // Check if it has FileInfo-like properties
-                if ('id' in fileInfos || 'name' in fileInfos) {
-                    fileInfo = fileInfos as FileInfo;
-                }
-            }
-
             if (!fileInfo) {
                 setError('No file to preview');
                 setLoading(false);
@@ -89,7 +102,7 @@ const ObeliskFilePreview: React.FC<Props> = (props) => {
         };
 
         loadFile();
-    }, [fileInfos]);
+    }, [fileInfo]);
 
     // Cleanup blob URL on unmount or when blobUrl changes
     useEffect(() => {
