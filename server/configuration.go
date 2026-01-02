@@ -18,30 +18,31 @@ import (
 //
 // If you add non-reference types to your configuration struct, be sure to rewrite Clone as a deep
 // copy appropriate for your types.
-type MimeTypeMapping struct {
-	MimeTypePattern string `json:"mimeTypePattern"` // e.g., "application/pdf", "image/*"
-	ArchivalTool    string `json:"archivalTool"`    // e.g., "direct_download"
+type ArchivalRule struct {
+	Kind         string `json:"kind"`         // "hostname" or "mimetype"
+	Pattern      string `json:"pattern"`       // Pattern value (e.g., "*.example.com" or "image/*")
+	ArchivalTool string `json:"archivalTool"`  // e.g., "direct_download"
 }
 
 type configuration struct {
-	MimeTypeMappings    []MimeTypeMapping `json:"mimeTypeMappings"`
-	DefaultArchivalTool string            `json:"defaultArchivalTool"`
+	ArchivalRules       []ArchivalRule `json:"archivalRules"`
+	DefaultArchivalTool string         `json:"defaultArchivalTool"`
 }
 
 // rawConfiguration is used to load the raw config from Mattermost
-// MimeTypeMappings is stored as a JSON string for custom settings
+// ArchivalRules is stored as a JSON string for custom settings
 // The JSON tag must match the key in plugin.json exactly
 // Since DefaultArchivalTool is now part of the custom setting, we don't need it here
 type rawConfiguration struct {
-	MimeTypeMappings string `json:"MimeTypeMappings"` // Custom setting stored as JSON string containing both mappings and default tool
+	MimeTypeMappings string `json:"MimeTypeMappings"` // Custom setting stored as JSON string containing both rules and default tool (kept for backward compatibility)
 }
 
 // Clone deep copies the configuration to handle the slice field.
 func (c *configuration) Clone() *configuration {
 	var clone = *c
-	if c.MimeTypeMappings != nil {
-		clone.MimeTypeMappings = make([]MimeTypeMapping, len(c.MimeTypeMappings))
-		copy(clone.MimeTypeMappings, c.MimeTypeMappings)
+	if c.ArchivalRules != nil {
+		clone.ArchivalRules = make([]ArchivalRule, len(c.ArchivalRules))
+		copy(clone.ArchivalRules, c.ArchivalRules)
 	}
 	return &clone
 }
@@ -57,22 +58,22 @@ func (p *Plugin) getConfiguration() *configuration {
 	config := &configuration{}
 	if p.configuration != nil {
 		config.DefaultArchivalTool = p.configuration.DefaultArchivalTool
-		config.MimeTypeMappings = p.configuration.MimeTypeMappings
+		config.ArchivalRules = p.configuration.ArchivalRules
 	}
 
-	// Load MIME type mappings from KV store (always use latest from KV store)
-	// Note: This is done here to ensure the archive processor always has the latest mappings
+	// Load archival rules from KV store (always use latest from KV store)
+	// Note: This is done here to ensure the archive processor always has the latest rules
 	// In a production system, you might want to cache this and invalidate on updates
-	mimeTypeMappings, err := p.loadMimeTypeMappings()
+	archivalRules, err := p.loadArchivalRules()
 	if err != nil {
-		// Log error but continue with existing mappings if available
-		p.API.LogError("Failed to load MIME type mappings from KV store", "error", err.Error())
-		if config.MimeTypeMappings == nil {
-			config.MimeTypeMappings = []MimeTypeMapping{}
+		// Log error but continue with existing rules if available
+		p.API.LogError("Failed to load archival rules from KV store", "error", err.Error())
+		if config.ArchivalRules == nil {
+			config.ArchivalRules = []ArchivalRule{}
 		}
 	} else {
-		config.MimeTypeMappings = mimeTypeMappings
-		p.API.LogDebug("Loaded MIME type mappings from KV store", "count", len(mimeTypeMappings))
+		config.ArchivalRules = archivalRules
+		p.API.LogDebug("Loaded archival rules from KV store", "count", len(archivalRules))
 	}
 
 	// Load default archival tool from KV store (always use latest from KV store)
@@ -131,24 +132,29 @@ func (p *Plugin) OnConfigurationChange() error {
 		return errors.Wrap(err, "failed to load plugin configuration")
 	}
 
-	// Parse the custom setting value which contains both MIME type mappings and default tool
-	var mimeTypeMappings []MimeTypeMapping
+	// Parse the custom setting value which contains both archival rules and default tool
+	var archivalRules []ArchivalRule
 	defaultArchivalTool := "do_nothing" // Default fallback
 
 	if rawConfig.MimeTypeMappings != "" {
 		// The custom setting value is a JSON string containing the full config
+		// Try to parse as new format first (archivalRules), then fall back to old format (mimeTypeMappings) for migration
 		var customConfig struct {
-			MimeTypeMappings    []MimeTypeMapping `json:"mimeTypeMappings"`
-			DefaultArchivalTool string            `json:"defaultArchivalTool"`
+			ArchivalRules       []ArchivalRule `json:"archivalRules"`
+			MimeTypeMappings    []struct {
+				MimeTypePattern string `json:"mimeTypePattern"`
+				ArchivalTool    string `json:"archivalTool"`
+			} `json:"mimeTypeMappings"` // For backward compatibility
+			DefaultArchivalTool string `json:"defaultArchivalTool"`
 		}
 		if err := json.Unmarshal([]byte(rawConfig.MimeTypeMappings), &customConfig); err != nil {
 			p.API.LogWarn("Failed to parse custom setting value, will use KV store", "error", err.Error())
 			// If parsing fails, try loading from KV store instead
 			var loadErr error
-			mimeTypeMappings, loadErr = p.loadMimeTypeMappings()
+			archivalRules, loadErr = p.loadArchivalRules()
 			if loadErr != nil {
-				p.API.LogError("Failed to load MIME type mappings from KV store", "error", loadErr.Error())
-				mimeTypeMappings = []MimeTypeMapping{}
+				p.API.LogError("Failed to load archival rules from KV store", "error", loadErr.Error())
+				archivalRules = []ArchivalRule{}
 			}
 			// Try to load default tool from existing config
 			currentConfig := p.getConfiguration()
@@ -157,13 +163,27 @@ func (p *Plugin) OnConfigurationChange() error {
 			}
 		} else {
 			// Successfully parsed from custom setting
-			mimeTypeMappings = customConfig.MimeTypeMappings
+			if len(customConfig.ArchivalRules) > 0 {
+				// New format
+				archivalRules = customConfig.ArchivalRules
+			} else if len(customConfig.MimeTypeMappings) > 0 {
+				// Old format - migrate to new format
+				archivalRules = make([]ArchivalRule, len(customConfig.MimeTypeMappings))
+				for i, mapping := range customConfig.MimeTypeMappings {
+					archivalRules[i] = ArchivalRule{
+						Kind:         "mimetype",
+						Pattern:      mapping.MimeTypePattern,
+						ArchivalTool: mapping.ArchivalTool,
+					}
+				}
+				p.API.LogInfo("Migrated MIME type mappings to archival rules", "count", len(archivalRules))
+			}
 			if customConfig.DefaultArchivalTool != "" {
 				defaultArchivalTool = customConfig.DefaultArchivalTool
 			}
-			// Save to KV store for consistency (both mappings and default tool)
-			if err := p.saveMimeTypeMappings(mimeTypeMappings); err != nil {
-				p.API.LogWarn("Failed to save MIME type mappings to KV store after parsing from custom setting", "error", err.Error())
+			// Save to KV store for consistency (both rules and default tool)
+			if err := p.saveArchivalRules(archivalRules); err != nil {
+				p.API.LogWarn("Failed to save archival rules to KV store after parsing from custom setting", "error", err.Error())
 			}
 			// Also save default tool to a separate KV key for quick access
 			if err := p.saveDefaultArchivalTool(defaultArchivalTool); err != nil {
@@ -173,10 +193,10 @@ func (p *Plugin) OnConfigurationChange() error {
 	} else {
 		// No custom setting value, try loading from KV store
 		var loadErr error
-		mimeTypeMappings, loadErr = p.loadMimeTypeMappings()
+		archivalRules, loadErr = p.loadArchivalRules()
 		if loadErr != nil {
-			p.API.LogError("Failed to load MIME type mappings from KV store", "error", loadErr.Error())
-			mimeTypeMappings = []MimeTypeMapping{}
+			p.API.LogError("Failed to load archival rules from KV store", "error", loadErr.Error())
+			archivalRules = []ArchivalRule{}
 		}
 		// Try to load default tool from KV store
 		loadedDefault, loadErr := p.loadDefaultArchivalTool()
@@ -191,10 +211,23 @@ func (p *Plugin) OnConfigurationChange() error {
 		}
 	}
 
+	// Ensure there's always a default rule at the end (empty pattern)
+	if len(archivalRules) == 0 || archivalRules[len(archivalRules)-1].Pattern != "" {
+		// Add default rule if it doesn't exist
+		archivalRules = append(archivalRules, ArchivalRule{
+			Kind:         "mimetype",
+			Pattern:      "", // Empty pattern means always match
+			ArchivalTool: defaultArchivalTool,
+		})
+	} else {
+		// Update existing default rule
+		archivalRules[len(archivalRules)-1].ArchivalTool = defaultArchivalTool
+	}
+
 	// Create the configuration struct
 	config := &configuration{
 		DefaultArchivalTool: defaultArchivalTool,
-		MimeTypeMappings:    mimeTypeMappings,
+		ArchivalRules:       archivalRules,
 	}
 
 	p.setConfiguration(config)
@@ -202,17 +235,18 @@ func (p *Plugin) OnConfigurationChange() error {
 	return nil
 }
 
-const mimeTypeMappingsKey = "mime_type_mappings"
+const archivalRulesKey = "archival_rules"
+const mimeTypeMappingsKey = "mime_type_mappings" // Kept for backward compatibility migration
 const defaultArchivalToolKey = "default_archival_tool"
 
-// saveMimeTypeMappings saves MIME type mappings to KV store
-func (p *Plugin) saveMimeTypeMappings(mappings []MimeTypeMapping) error {
-	data, err := json.Marshal(mappings)
+// saveArchivalRules saves archival rules to KV store
+func (p *Plugin) saveArchivalRules(rules []ArchivalRule) error {
+	data, err := json.Marshal(rules)
 	if err != nil {
 		return err
 	}
 
-	appErr := p.API.KVSet(mimeTypeMappingsKey, data)
+	appErr := p.API.KVSet(archivalRulesKey, data)
 	if appErr != nil {
 		return appErr
 	}
@@ -220,24 +254,55 @@ func (p *Plugin) saveMimeTypeMappings(mappings []MimeTypeMapping) error {
 	return nil
 }
 
-// loadMimeTypeMappings loads MIME type mappings from KV store
-func (p *Plugin) loadMimeTypeMappings() ([]MimeTypeMapping, error) {
-	data, appErr := p.API.KVGet(mimeTypeMappingsKey)
+// loadArchivalRules loads archival rules from KV store
+// Also attempts to migrate old mimeTypeMappings if archivalRules don't exist
+func (p *Plugin) loadArchivalRules() ([]ArchivalRule, error) {
+	data, appErr := p.API.KVGet(archivalRulesKey)
 	if appErr != nil {
 		return nil, appErr
 	}
 
-	if data == nil {
-		// No mappings stored yet, return empty slice
-		return []MimeTypeMapping{}, nil
+	if data != nil {
+		var rules []ArchivalRule
+		if err := json.Unmarshal(data, &rules); err != nil {
+			return nil, err
+		}
+		return rules, nil
 	}
 
-	var mappings []MimeTypeMapping
-	if err := json.Unmarshal(data, &mappings); err != nil {
-		return nil, err
+	// Try to migrate from old format
+	oldData, appErr := p.API.KVGet(mimeTypeMappingsKey)
+	if appErr != nil {
+		return []ArchivalRule{}, nil
 	}
 
-	return mappings, nil
+	if oldData != nil {
+		// Old format - migrate to new format
+		var oldMappings []struct {
+			MimeTypePattern string `json:"mimeTypePattern"`
+			ArchivalTool    string `json:"archivalTool"`
+		}
+		if err := json.Unmarshal(oldData, &oldMappings); err == nil {
+			rules := make([]ArchivalRule, len(oldMappings))
+			for i, mapping := range oldMappings {
+				rules[i] = ArchivalRule{
+					Kind:         "mimetype",
+					Pattern:      mapping.MimeTypePattern,
+					ArchivalTool: mapping.ArchivalTool,
+				}
+			}
+			// Save in new format
+			if err := p.saveArchivalRules(rules); err != nil {
+				p.API.LogWarn("Failed to save migrated archival rules", "error", err.Error())
+			} else {
+				p.API.LogInfo("Migrated MIME type mappings to archival rules", "count", len(rules))
+			}
+			return rules, nil
+		}
+	}
+
+	// No rules stored yet, return empty slice
+	return []ArchivalRule{}, nil
 }
 
 // saveDefaultArchivalTool saves the default archival tool to KV store

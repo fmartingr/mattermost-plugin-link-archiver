@@ -1,12 +1,13 @@
 import React, {useState, useEffect} from 'react';
 
-type MimeTypeMapping = {
-    mimeTypePattern: string;
+type ArchivalRule = {
+    kind: 'hostname' | 'mimetype';
+    pattern: string;
     archivalTool: string;
 };
 
 type Config = {
-    mimeTypeMappings: MimeTypeMapping[];
+    archivalRules: ArchivalRule[];
     defaultArchivalTool: string;
 };
 
@@ -134,51 +135,91 @@ const AdminSettings: React.FC<Props> = ({config, setConfig, archivalTools, disab
     const [localConfig, setLocalConfig] = useState<Config>(config);
 
     useEffect(() => {
-        setLocalConfig(config);
+        // Ensure there's always a default rule at the end
+        const rules = [...config.archivalRules];
+        if (rules.length === 0 || rules[rules.length - 1].pattern !== '') {
+            // Add or ensure default rule exists
+            const defaultTool = config.defaultArchivalTool || 'do_nothing';
+            if (rules.length === 0 || rules[rules.length - 1].pattern !== '') {
+                rules.push({
+                    kind: 'mimetype',
+                    pattern: '', // Empty pattern means it's the default
+                    archivalTool: defaultTool,
+                });
+            } else {
+                // Update existing default rule
+                rules[rules.length - 1].archivalTool = defaultTool;
+            }
+        }
+        setLocalConfig({
+            ...config,
+            archivalRules: rules,
+        });
     }, [config]);
 
-    const handleAddMapping = () => {
+    const handleAddRule = () => {
         const defaultTool = archivalTools.length > 0 ? archivalTools[0] : 'do_nothing';
+        // Add rule before the last one (which is the default)
+        const rules = [...localConfig.archivalRules];
+        const defaultRule = rules.pop() || {kind: 'mimetype' as const, pattern: '', archivalTool: 'do_nothing'};
+        rules.push({kind: 'mimetype', pattern: '', archivalTool: defaultTool});
+        rules.push(defaultRule); // Put default back at the end
         const newConfig = {
             ...localConfig,
-            mimeTypeMappings: [
-                ...localConfig.mimeTypeMappings,
-                {mimeTypePattern: '', archivalTool: defaultTool},
-            ],
+            archivalRules: rules,
         };
         setLocalConfig(newConfig);
         setConfig(newConfig);
     };
 
-    const handleRemoveMapping = (index: number) => {
-        const newMappings = [...localConfig.mimeTypeMappings];
-        newMappings.splice(index, 1);
+    const handleRemoveRule = (index: number) => {
+        // Don't allow removing the last rule (default)
+        if (index === localConfig.archivalRules.length - 1) {
+            return;
+        }
+        const newRules = [...localConfig.archivalRules];
+        newRules.splice(index, 1);
         const newConfig = {
             ...localConfig,
-            mimeTypeMappings: newMappings,
+            archivalRules: newRules,
         };
         setLocalConfig(newConfig);
         setConfig(newConfig);
     };
 
-    const handleUpdateMapping = (index: number, field: keyof MimeTypeMapping, value: string) => {
-        const newMappings = [...localConfig.mimeTypeMappings];
-        newMappings[index] = {
-            ...newMappings[index],
+    const handleUpdateRule = (index: number, field: keyof ArchivalRule, value: string) => {
+        const newRules = [...localConfig.archivalRules];
+        newRules[index] = {
+            ...newRules[index],
             [field]: value,
         };
+        // If updating the default rule's tool, also update defaultArchivalTool
+        const isDefault = index === newRules.length - 1;
         const newConfig = {
             ...localConfig,
-            mimeTypeMappings: newMappings,
+            archivalRules: newRules,
+            defaultArchivalTool: isDefault && field === 'archivalTool' ? value : localConfig.defaultArchivalTool,
         };
         setLocalConfig(newConfig);
         setConfig(newConfig);
     };
 
-    const handleDefaultToolChange = (value: string) => {
+    const handleMoveRule = (index: number, direction: 'up' | 'down') => {
+        // Don't allow moving the last rule (default)
+        const lastIndex = localConfig.archivalRules.length - 1;
+        if (index === lastIndex) {
+            return;
+        }
+        const newRules = [...localConfig.archivalRules];
+        if (direction === 'up' && index > 0) {
+            [newRules[index - 1], newRules[index]] = [newRules[index], newRules[index - 1]];
+        } else if (direction === 'down' && index < lastIndex - 1) {
+            // Can't move down if it would become the last rule
+            [newRules[index], newRules[index + 1]] = [newRules[index + 1], newRules[index]];
+        }
         const newConfig = {
             ...localConfig,
-            defaultArchivalTool: value,
+            archivalRules: newRules,
         };
         setLocalConfig(newConfig);
         setConfig(newConfig);
@@ -186,76 +227,126 @@ const AdminSettings: React.FC<Props> = ({config, setConfig, archivalTools, disab
 
     return (
         <div style={styles.container}>
-            {/* MIME Type Mappings Section */}
+            {/* Archival Rules Section */}
             <div style={styles.section}>
-                <div style={styles.sectionTitle}>{'MIME Type Mappings'}</div>
+                <div style={styles.sectionTitle}>{'Archival Rules'}</div>
                 <div style={styles.formGroup}>
                     <div style={styles.helpText}>
-                        {'Configure which archival tool to use for different MIME types. Use wildcards like "image/*" to match all image types.'}
+                        {'Configure archival rules that match on hostname or MIME type patterns. Rules are evaluated in order, and the first matching rule determines which archival tool to use. The last rule is the default (always matches) and cannot be removed or reordered. Use wildcards like "*.example.com" for hostnames or "image/*" for MIME types.'}
                     </div>
 
-                    {localConfig.mimeTypeMappings.length === 0 ? (
-                        <div style={styles.emptyState}>
-                            <div style={styles.emptyStateText}>
-                                {'No MIME type mappings configured. Click "Add Mapping" to create one.'}
-                            </div>
-                            <button
-                                type='button'
-                                onClick={handleAddMapping}
-                                disabled={disabled}
-                                style={{
-                                    ...styles.button,
-                                    ...styles.buttonSecondary,
-                                    ...(disabled ? styles.buttonDisabled : {}),
-                                }}
-                            >
-                                {'Add Mapping'}
-                            </button>
-                        </div>
-                    ) : (
-                        <>
-                            <table style={styles.table}>
-                                <thead>
-                                    <tr>
-                                        <th style={styles.tableHeader}>{'MIME Type Pattern'}</th>
-                                        <th style={styles.tableHeader}>{'Archival Tool'}</th>
-                                        <th style={styles.tableHeader}>{'Actions'}</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {localConfig.mimeTypeMappings.map((mapping, index) => (
-                                        <tr key={index}>
-                                            <td style={styles.tableCell}>
-                                                <input
-                                                    type='text'
-                                                    style={styles.tableInput}
-                                                    value={mapping.mimeTypePattern}
-                                                    onChange={(e) => handleUpdateMapping(index, 'mimeTypePattern', e.target.value)}
-                                                    placeholder='e.g., application/pdf, image/*'
-                                                    disabled={disabled}
-                                                />
+                    <table style={styles.table}>
+                        <thead>
+                            <tr>
+                                <th style={styles.tableHeader}>{'Order'}</th>
+                                <th style={styles.tableHeader}>{'Kind'}</th>
+                                <th style={styles.tableHeader}>{'Pattern'}</th>
+                                <th style={styles.tableHeader}>{'Archival Tool'}</th>
+                                <th style={styles.tableHeader}>{'Actions'}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {localConfig.archivalRules.map((rule, index) => {
+                                const isDefault = index === localConfig.archivalRules.length - 1;
+                                const hasPattern = rule.pattern && rule.pattern.trim() !== '';
+                                const placeholder = rule.kind === 'hostname' ? 'e.g., *.example.com' : isDefault ? 'Default (always matches)' : 'e.g., image/*';
+                                return (
+                                    <tr key={index} style={isDefault ? {backgroundColor: '#f9f9f9'} : {}}>
+                                        <td style={styles.tableCell}>
+                                            {isDefault ? (
+                                                <span style={{color: '#666', fontSize: '12px'}}>{'Default'}</span>
+                                            ) : (
+                                                <div style={{display: 'flex', flexDirection: 'column', gap: '4px'}}>
+                                                    <button
+                                                        type='button'
+                                                        onClick={() => handleMoveRule(index, 'up')}
+                                                        disabled={disabled || index === 0}
+                                                        style={{
+                                                            ...styles.button,
+                                                            ...styles.buttonSecondary,
+                                                            padding: '4px 8px',
+                                                            fontSize: '12px',
+                                                            ...(disabled || index === 0 ? styles.buttonDisabled : {}),
+                                                        }}
+                                                        title='Move up'
+                                                    >
+                                                        {'↑'}
+                                                    </button>
+                                                    <button
+                                                        type='button'
+                                                        onClick={() => handleMoveRule(index, 'down')}
+                                                        disabled={disabled || index === localConfig.archivalRules.length - 2}
+                                                        style={{
+                                                            ...styles.button,
+                                                            ...styles.buttonSecondary,
+                                                            padding: '4px 8px',
+                                                            fontSize: '12px',
+                                                            ...(disabled || index === localConfig.archivalRules.length - 2 ? styles.buttonDisabled : {}),
+                                                        }}
+                                                        title='Move down'
+                                                    >
+                                                        {'↓'}
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </td>
+                                        {!isDefault && (
+                                            <>
+                                                <td style={styles.tableCell}>
+                                                    <select
+                                                        style={styles.tableSelect}
+                                                        value={rule.kind}
+                                                        onChange={(e) => handleUpdateRule(index, 'kind', e.target.value as 'hostname' | 'mimetype')}
+                                                        disabled={disabled}
+                                                    >
+                                                        <option value='hostname'>{'Hostname'}</option>
+                                                        <option value='mimetype'>{'MIME Type'}</option>
+                                                    </select>
+                                                </td>
+                                                <td style={styles.tableCell}>
+                                                    <input
+                                                        type='text'
+                                                        style={{
+                                                            ...styles.tableInput,
+                                                            ...(!hasPattern ? {borderColor: '#d32f2f'} : {}),
+                                                        }}
+                                                        value={rule.pattern}
+                                                        onChange={(e) => handleUpdateRule(index, 'pattern', e.target.value)}
+                                                        placeholder={placeholder}
+                                                        disabled={disabled}
+                                                    />
+                                                </td>
+                                            </>
+                                        )}
+                                        {isDefault && (
+                                            <td colSpan={2} style={styles.tableCell}>
+                                                <span style={{color: '#666', fontSize: '12px', fontStyle: 'italic'}}>{'Default rule (always matches)'}</span>
                                             </td>
-                                            <td style={styles.tableCell}>
-                                                <select
-                                                    style={styles.tableSelect}
-                                                    value={mapping.archivalTool}
-                                                    onChange={(e) => handleUpdateMapping(index, 'archivalTool', e.target.value)}
-                                                    disabled={disabled}
-                                                >
-                                                    {archivalTools.map((tool) => (
-                                                        <option
-                                                            key={tool}
-                                                            value={tool}
-                                                        >
-                                                            {formatToolName(tool)}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                            </td>
-                                            <td style={styles.tableCell}>
+                                        )}
+                                        <td style={styles.tableCell}>
+                                            <select
+                                                style={styles.tableSelect}
+                                                value={rule.archivalTool}
+                                                onChange={(e) => handleUpdateRule(index, 'archivalTool', e.target.value)}
+                                                disabled={disabled}
+                                            >
+                                                {archivalTools.map((tool) => (
+                                                    <option
+                                                        key={tool}
+                                                        value={tool}
+                                                    >
+                                                        {formatToolName(tool)}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </td>
+                                        <td style={styles.tableCell}>
+                                            {isDefault ? (
+                                                <span style={{color: '#666', fontSize: '12px'}}>{'Default'}</span>
+                                            ) : (
                                                 <button
                                                     type='button'
-                                                    onClick={() => handleRemoveMapping(index)}
+                                                    onClick={() => handleRemoveRule(index)}
                                                     disabled={disabled}
                                                     style={{
                                                         ...styles.button,
@@ -265,57 +356,26 @@ const AdminSettings: React.FC<Props> = ({config, setConfig, archivalTools, disab
                                                 >
                                                     {'Remove'}
                                                 </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                                            )}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
 
-                            <button
-                                type='button'
-                                onClick={handleAddMapping}
-                                disabled={disabled}
-                                style={{
-                                    ...styles.button,
-                                    ...styles.buttonSecondary,
-                                    ...(disabled ? styles.buttonDisabled : {}),
-                                }}
-                            >
-                                {'Add Mapping'}
-                            </button>
-                        </>
-                    )}
-                </div>
-            </div>
-
-            {/* Default Archival Tool Section */}
-            <div style={styles.section}>
-                <div style={styles.sectionTitle}>{'Default Archival Tool'}</div>
-                <div style={styles.formGroup}>
-                    <label style={styles.label}>
-                        {'Default Archival Tool'}
-                    </label>
-                    <select
-                        style={{
-                            ...styles.select,
-                            ...(disabled ? {opacity: 0.6, cursor: 'not-allowed'} : {}),
-                        }}
-                        value={localConfig.defaultArchivalTool}
-                        onChange={(e) => handleDefaultToolChange(e.target.value)}
+                    <button
+                        type='button'
+                        onClick={handleAddRule}
                         disabled={disabled}
+                        style={{
+                            ...styles.button,
+                            ...styles.buttonSecondary,
+                            ...(disabled ? styles.buttonDisabled : {}),
+                        }}
                     >
-                        {archivalTools.map((tool) => (
-                            <option
-                                key={tool}
-                                value={tool}
-                            >
-                                {formatToolName(tool)}
-                            </option>
-                        ))}
-                    </select>
-                    <div style={styles.helpText}>
-                        {'The default archival tool to use when no MIME type mapping matches. This is a required setting.'}
-                    </div>
+                        {'Add Rule'}
+                    </button>
                 </div>
             </div>
         </div>

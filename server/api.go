@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -66,13 +67,13 @@ func (p *Plugin) GetConfig(w http.ResponseWriter, r *http.Request) {
 
 	config := p.getConfiguration()
 
-	// getConfiguration already loads MIME type mappings from KV store
+	// getConfiguration already loads archival rules from KV store
 	// Return the full configuration
 	fullConfig := struct {
-		MimeTypeMappings    []MimeTypeMapping `json:"mimeTypeMappings"`
-		DefaultArchivalTool string            `json:"defaultArchivalTool"`
+		ArchivalRules       []ArchivalRule `json:"archivalRules"`
+		DefaultArchivalTool string         `json:"defaultArchivalTool"`
 	}{
-		MimeTypeMappings:    config.MimeTypeMappings,
+		ArchivalRules:       config.ArchivalRules,
 		DefaultArchivalTool: config.DefaultArchivalTool,
 	}
 
@@ -99,8 +100,12 @@ func (p *Plugin) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var requestConfig struct {
-		MimeTypeMappings    []MimeTypeMapping `json:"mimeTypeMappings"`
-		DefaultArchivalTool string            `json:"defaultArchivalTool"`
+		ArchivalRules       []ArchivalRule `json:"archivalRules"`
+		MimeTypeMappings    []struct {
+			MimeTypePattern string `json:"mimeTypePattern"`
+			ArchivalTool    string `json:"archivalTool"`
+		} `json:"mimeTypeMappings"` // For backward compatibility
+		DefaultArchivalTool string `json:"defaultArchivalTool"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&requestConfig); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -112,6 +117,41 @@ func (p *Plugin) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 		requestConfig.DefaultArchivalTool = "do_nothing"
 	}
 
+	// Migrate old format to new format if needed
+	archivalRules := requestConfig.ArchivalRules
+	if len(archivalRules) == 0 && len(requestConfig.MimeTypeMappings) > 0 {
+		// Migrate old format to new format
+		archivalRules = make([]ArchivalRule, len(requestConfig.MimeTypeMappings))
+		for i, mapping := range requestConfig.MimeTypeMappings {
+			archivalRules[i] = ArchivalRule{
+				Kind:         "mimetype",
+				Pattern:      mapping.MimeTypePattern,
+				ArchivalTool: mapping.ArchivalTool,
+			}
+		}
+		p.API.LogInfo("Migrated MIME type mappings to archival rules", "count", len(archivalRules))
+	}
+
+	// Validate that each rule has required fields
+	for i, rule := range archivalRules {
+		if rule.Kind == "" {
+			http.Error(w, fmt.Sprintf("Rule at index %d must have a kind (hostname or mimetype)", i), http.StatusBadRequest)
+			return
+		}
+		if rule.Kind != "hostname" && rule.Kind != "mimetype" {
+			http.Error(w, fmt.Sprintf("Rule at index %d has invalid kind '%s'. Must be 'hostname' or 'mimetype'", i, rule.Kind), http.StatusBadRequest)
+			return
+		}
+		if rule.Pattern == "" {
+			http.Error(w, fmt.Sprintf("Rule at index %d must have a pattern", i), http.StatusBadRequest)
+			return
+		}
+		if rule.ArchivalTool == "" {
+			http.Error(w, fmt.Sprintf("Rule at index %d must have an archival tool", i), http.StatusBadRequest)
+			return
+		}
+	}
+
 	// Save default archival tool to KV store (this persists)
 	if err := p.saveDefaultArchivalTool(requestConfig.DefaultArchivalTool); err != nil {
 		p.API.LogError("Failed to save default archival tool to KV store", "error", err.Error())
@@ -119,10 +159,10 @@ func (p *Plugin) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save MIME type mappings to KV store (this persists)
-	if err := p.saveMimeTypeMappings(requestConfig.MimeTypeMappings); err != nil {
-		p.API.LogError("Failed to save MIME type mappings to KV store", "error", err.Error())
-		http.Error(w, "Failed to save MIME type mappings", http.StatusInternalServerError)
+	// Save archival rules to KV store (this persists)
+	if err := p.saveArchivalRules(archivalRules); err != nil {
+		p.API.LogError("Failed to save archival rules to KV store", "error", err.Error())
+		http.Error(w, "Failed to save archival rules", http.StatusInternalServerError)
 		return
 	}
 
@@ -132,15 +172,15 @@ func (p *Plugin) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 		p.configuration = &configuration{}
 	}
 	p.configuration.DefaultArchivalTool = requestConfig.DefaultArchivalTool
-	p.configuration.MimeTypeMappings = requestConfig.MimeTypeMappings
+	p.configuration.ArchivalRules = archivalRules
 	p.configurationLock.Unlock()
 
 	// Return the full configuration
 	responseConfig := struct {
-		MimeTypeMappings    []MimeTypeMapping `json:"mimeTypeMappings"`
-		DefaultArchivalTool string            `json:"defaultArchivalTool"`
+		ArchivalRules       []ArchivalRule `json:"archivalRules"`
+		DefaultArchivalTool string         `json:"defaultArchivalTool"`
 	}{
-		MimeTypeMappings:    requestConfig.MimeTypeMappings,
+		ArchivalRules:       archivalRules,
 		DefaultArchivalTool: requestConfig.DefaultArchivalTool,
 	}
 

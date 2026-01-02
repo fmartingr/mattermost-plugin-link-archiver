@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -166,7 +167,7 @@ func (p *ArchiveProcessor) processURL(postID, url string, config *configuration)
 	}
 
 	// Find the appropriate archival tool
-	toolName := p.findArchivalTool(mimeType, config)
+	toolName := p.findArchivalTool(url, mimeType, config)
 	if toolName == "" {
 		err = fmt.Errorf("no archival tool found for MIME type: %s", mimeType)
 		p.api.LogWarn("No archival tool found for MIME type", "mimeType", mimeType, "url", url)
@@ -301,29 +302,80 @@ func (p *ArchiveProcessor) processURL(postID, url string, config *configuration)
 	p.api.LogInfo("Successfully archived URL", "url", url, "postID", postID, "fileID", metadata.FileID)
 }
 
-// findArchivalTool finds the appropriate archival tool for a given MIME type
-func (p *ArchiveProcessor) findArchivalTool(mimeType string, config *configuration) string {
-	// Log for debugging
-	p.api.LogDebug("Finding archival tool", "mimeType", mimeType, "mappingsCount", len(config.MimeTypeMappings), "defaultTool", config.DefaultArchivalTool)
+// findArchivalTool finds the appropriate archival tool for a given URL and MIME type
+// Rules are evaluated in order, and the first matching rule determines the tool
+func (p *ArchiveProcessor) findArchivalTool(urlStr, mimeType string, config *configuration) string {
+	// Extract hostname from URL
+	hostname := ""
+	if parsedURL, err := url.Parse(urlStr); err == nil {
+		hostname = parsedURL.Hostname()
+	}
 
-	// Check MIME type mappings
-	for _, mapping := range config.MimeTypeMappings {
-		p.api.LogDebug("Checking mapping", "pattern", mapping.MimeTypePattern, "tool", mapping.ArchivalTool, "mimeType", mimeType)
-		if p.mimeTypeMatches(mimeType, mapping.MimeTypePattern) {
-			p.api.LogInfo("MIME type mapping matched", "mimeType", mimeType, "pattern", mapping.MimeTypePattern, "tool", mapping.ArchivalTool)
-			return mapping.ArchivalTool
+	// Log for debugging
+	p.api.LogDebug("Finding archival tool", "mimeType", mimeType, "hostname", hostname, "rulesCount", len(config.ArchivalRules))
+
+	// Check archival rules in order
+	// The last rule should have an empty pattern and will always match (default rule)
+	for i, rule := range config.ArchivalRules {
+		p.api.LogDebug("Checking rule", "index", i, "kind", rule.Kind, "pattern", rule.Pattern, "tool", rule.ArchivalTool)
+		if p.ruleMatches(hostname, mimeType, rule) {
+			p.api.LogInfo("Archival rule matched", "index", i, "hostname", hostname, "mimeType", mimeType, "kind", rule.Kind, "pattern", rule.Pattern, "tool", rule.ArchivalTool)
+			return rule.ArchivalTool
 		}
 	}
 
-	// Use default tool if no match found
-	if config.DefaultArchivalTool != "" {
-		p.api.LogInfo("No MIME type mapping matched, using default tool", "defaultTool", config.DefaultArchivalTool, "mimeType", mimeType)
-		return config.DefaultArchivalTool
+	// Fallback to do_nothing if no rules exist (shouldn't happen if default rule is always present)
+	p.api.LogInfo("No rules exist, using do_nothing fallback", "hostname", hostname, "mimeType", mimeType)
+	return "do_nothing"
+}
+
+// ruleMatches checks if a rule matches the given hostname and mimetype
+// A rule matches based on its Kind: "hostname" checks hostname, "mimetype" checks mimetype
+// An empty pattern means the rule always matches (used for the default rule)
+func (p *ArchiveProcessor) ruleMatches(hostname, mimeType string, rule ArchivalRule) bool {
+	// Validate rule has required fields
+	if rule.Kind == "" {
+		return false
 	}
 
-	// Fallback to do_nothing if no default is set
-	p.api.LogInfo("No default tool set, using do_nothing fallback", "mimeType", mimeType)
-	return "do_nothing"
+	// Empty pattern means always match (default rule)
+	if rule.Pattern == "" {
+		return true
+	}
+
+	// Match based on rule kind
+	switch rule.Kind {
+	case "hostname":
+		return p.hostnameMatches(hostname, rule.Pattern)
+	case "mimetype":
+		return p.mimeTypeMatches(mimeType, rule.Pattern)
+	default:
+		// Unknown kind, don't match
+		return false
+	}
+}
+
+// hostnameMatches checks if a hostname matches a pattern
+// Supports wildcards like "*.example.com" for subdomain matching
+func (p *ArchiveProcessor) hostnameMatches(hostname, pattern string) bool {
+	// Exact match
+	if hostname == pattern {
+		return true
+	}
+
+	// Wildcard match: *.example.com
+	if strings.HasPrefix(pattern, "*.") {
+		suffix := strings.TrimPrefix(pattern, "*.")
+		if suffix == "" {
+			return false
+		}
+		// Match if hostname ends with .suffix or equals suffix
+		if hostname == suffix || strings.HasSuffix(hostname, "."+suffix) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // mimeTypeMatches checks if a MIME type matches a pattern

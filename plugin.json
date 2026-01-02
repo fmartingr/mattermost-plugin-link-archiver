@@ -1,7 +1,7 @@
 {
   "id": "com.mattermost.link-archiver",
   "name": "Link Archiver",
-  "description": "Automatically archives links posted to Mattermost channels. Supports multiple archival methods configurable by MIME type.",
+  "description": "Automatically archives links posted to Mattermost channels. Supports multiple archival methods configurable by hostname and MIME type rules.",
   "homepage_url": "https://github.com/fmartingrmattermost-plugin-link-archiver",
   "support_url": "https://github.com/fmartingrmattermost-plugin-link-archiver/issues",
   "icon_path": "assets/icon.png",
@@ -21,14 +21,14 @@
     "bundle_path": "webapp/dist/main.js"
   },
   "settings_schema": {
-    "header": "Configure the Link Archiver plugin. Set up MIME type mappings to specify which archival tool to use for different content types.",
-    "footer": "For detailed configuration of MIME type mappings, use the admin settings UI.",
+    "header": "Configure the Link Archiver plugin. Set up archival rules to specify which archival tool to use based on hostname and/or MIME type patterns.",
+    "footer": "",
     "settings": [
       {
         "key": "MimeTypeMappings",
-        "display_name": "MIME Type Mappings",
+        "display_name": "Archival Rules",
         "type": "custom",
-        "help_text": "Configure which archival tool to use for different MIME types. Use wildcards like 'image/*' to match all image types."
+        "help_text": "Configure archival rules that match on hostname and/or MIME type patterns. Rules are evaluated in order, and the first matching rule determines which archival tool to use. Use wildcards like '*.example.com' for hostnames or 'image/*' for MIME types."
       }
     ]
   }

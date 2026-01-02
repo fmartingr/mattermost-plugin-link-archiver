@@ -29,8 +29,14 @@ const makePluginRequest = async (url: string, options: RequestInit = {}): Promis
     return fetch(fullUrl, clientOptions);
 };
 
+type ArchivalRule = {
+    kind: 'hostname' | 'mimetype';
+    pattern: string;
+    archivalTool: string;
+};
+
 type Config = {
-    mimeTypeMappings: Array<{mimeTypePattern: string; archivalTool: string}>;
+    archivalRules: ArchivalRule[];
     defaultArchivalTool: string;
 };
 
@@ -45,42 +51,81 @@ type CustomSettingProps = {
 
 const AdminSettingsWrapper: React.FC<CustomSettingProps> = ({id, value, onChange, setSaveNeeded, disabled}) => {
     const [config, setConfig] = useState<Config>({
-        mimeTypeMappings: [],
+        archivalRules: [],
         defaultArchivalTool: 'do_nothing',
     });
     const [archivalTools, setArchivalTools] = useState<string[]>(['do_nothing', 'direct_download']);
     const [loading, setLoading] = useState(true);
     const [error] = useState<string | null>(null);
 
-    // Load configuration from API (primary source) or from Mattermost value prop (fallback)
-    useEffect(() => {
-        const loadConfig = async () => {
-            try {
-                // Try to load from API first (KV store is the source of truth)
-                const response = await makePluginRequest(`/plugins/${manifest.id}/api/v1/config`, {
-                    method: 'GET',
-                });
-                if (response.ok) {
-                    const data = await response.json();
-                    setConfig({
-                        mimeTypeMappings: data.mimeTypeMappings || [],
-                        defaultArchivalTool: data.defaultArchivalTool || 'do_nothing',
-                    });
-                    setLoading(false);
-                    return;
-                }
-            } catch (err) {
-                // Failed to load config from API, will fallback to value prop
+    // Helper function to migrate old format rules to new format
+    const migrateRules = (rules: any[]): ArchivalRule[] => {
+        return rules.map((rule: any) => {
+            if (rule.kind && rule.pattern) {
+                // New format
+                return rule;
+            } else if (rule.hostnamePattern) {
+                // Old format with hostname
+                return {
+                    kind: 'hostname',
+                    pattern: rule.hostnamePattern,
+                    archivalTool: rule.archivalTool,
+                };
+            } else if (rule.mimeTypePattern) {
+                // Old format with mimetype
+                return {
+                    kind: 'mimetype',
+                    pattern: rule.mimeTypePattern,
+                    archivalTool: rule.archivalTool,
+                };
             }
+            // Fallback - shouldn't happen
+            return {
+                kind: 'mimetype',
+                pattern: '',
+                archivalTool: rule.archivalTool || 'do_nothing',
+            };
+        });
+    };
 
-            // Fallback to Mattermost value prop if API fails
+    // Load configuration only once on mount from Mattermost value prop
+    // This prevents reloading during edits
+    useEffect(() => {
+        const loadConfig = () => {
             if (value) {
                 try {
                     const parsed = JSON.parse(value);
                     if (parsed && typeof parsed === 'object') {
+                        // Handle migration from old format
+                        let archivalRules: ArchivalRule[] = [];
+                        if (parsed.archivalRules && Array.isArray(parsed.archivalRules)) {
+                            archivalRules = migrateRules(parsed.archivalRules);
+                        } else if (parsed.mimeTypeMappings && Array.isArray(parsed.mimeTypeMappings)) {
+                            // Migrate old format to new format
+                            archivalRules = parsed.mimeTypeMappings.map((mapping: {mimeTypePattern: string; archivalTool: string}) => ({
+                                kind: 'mimetype',
+                                pattern: mapping.mimeTypePattern,
+                                archivalTool: mapping.archivalTool,
+                            }));
+                        }
+
+                        // Ensure there's always a default rule at the end (empty pattern)
+                        const defaultTool = parsed.defaultArchivalTool || 'do_nothing';
+                        if (archivalRules.length === 0 || archivalRules[archivalRules.length - 1].pattern !== '') {
+                            // Add default rule if it doesn't exist
+                            archivalRules.push({
+                                kind: 'mimetype',
+                                pattern: '',
+                                archivalTool: defaultTool,
+                            });
+                        } else {
+                            // Update existing default rule
+                            archivalRules[archivalRules.length - 1].archivalTool = defaultTool;
+                        }
+
                         setConfig({
-                            mimeTypeMappings: parsed.mimeTypeMappings || [],
-                            defaultArchivalTool: parsed.defaultArchivalTool || 'do_nothing',
+                            archivalRules,
+                            defaultArchivalTool: defaultTool,
                         });
                     }
                 } catch (err) {
@@ -91,7 +136,8 @@ const AdminSettingsWrapper: React.FC<CustomSettingProps> = ({id, value, onChange
         };
 
         loadConfig();
-    }, [value]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // Only run once on mount
 
     const fetchArchivalTools = async (): Promise<void> => {
         try {
@@ -115,24 +161,13 @@ const AdminSettingsWrapper: React.FC<CustomSettingProps> = ({id, value, onChange
         fetchArchivalTools();
     }, []);
 
-    // Auto-save when config changes via API endpoint
-    const handleConfigChange = useCallback(async (newConfig: Config) => {
+    // Update local state and mark as needing save (no auto-save to API)
+    // The system admin "Save" button will trigger OnConfigurationChange which saves to KV store
+    const handleConfigChange = useCallback((newConfig: Config) => {
         setConfig(newConfig);
 
-        // Auto-save to backend via API endpoint
-        try {
-            const response = await makePluginRequest(`/plugins/${manifest.id}/api/v1/config`, {
-                method: 'POST',
-                body: JSON.stringify(newConfig),
-            });
-            if (!response.ok) {
-                // Failed to auto-save configuration
-            }
-        } catch (err) {
-            // Failed to auto-save configuration
-        }
-
-        // Also update Mattermost's setting value for consistency
+        // Update Mattermost's setting value and mark as needing save
+        // This will be saved when the user clicks the system admin "Save" button
         const serialized = JSON.stringify(newConfig);
         onChange(id, serialized);
         setSaveNeeded();
