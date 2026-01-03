@@ -5,7 +5,7 @@
   "homepage_url": "https://github.com/fmartingrmattermost-plugin-link-archiver",
   "support_url": "https://github.com/fmartingrmattermost-plugin-link-archiver/issues",
   "icon_path": "assets/icon.png",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "min_server_version": "6.2.1",
   "server": {
     "executables": {
