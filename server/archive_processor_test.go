@@ -339,24 +339,24 @@ func TestRuleMatches(t *testing.T) {
 			expected: false,
 		},
 
-		// Empty pattern (default rule)
+		// Default rule (kind: "default")
 		{
-			name:     "empty pattern always matches",
+			name:     "default kind always matches",
 			hostname: "example.com",
 			mimeType: "application/pdf",
 			rule: ArchivalRule{
-				Kind:         "mimetype",
+				Kind:         "default",
 				Pattern:      "",
 				ArchivalTool: "do_nothing",
 			},
 			expected: true,
 		},
 		{
-			name:     "empty pattern matches any hostname",
+			name:     "default kind matches any hostname",
 			hostname: "any-domain.com",
 			mimeType: "any/type",
 			rule: ArchivalRule{
-				Kind:         "hostname",
+				Kind:         "default",
 				Pattern:      "",
 				ArchivalTool: "do_nothing",
 			},
@@ -410,7 +410,7 @@ func TestFindArchivalTool(t *testing.T) {
 					ArchivalTool: "direct_download",
 				},
 				{
-					Kind:         "mimetype",
+					Kind:         "default",
 					Pattern:      "",
 					ArchivalTool: "do_nothing",
 				},
@@ -430,7 +430,7 @@ func TestFindArchivalTool(t *testing.T) {
 					ArchivalTool: "direct_download",
 				},
 				{
-					Kind:         "mimetype",
+					Kind:         "default",
 					Pattern:      "",
 					ArchivalTool: "do_nothing",
 				},
@@ -450,7 +450,7 @@ func TestFindArchivalTool(t *testing.T) {
 					ArchivalTool: "direct_download",
 				},
 				{
-					Kind:         "mimetype",
+					Kind:         "default",
 					Pattern:      "",
 					ArchivalTool: "obelisk",
 				},
@@ -474,7 +474,7 @@ func TestFindArchivalTool(t *testing.T) {
 		config := &configuration{
 			ArchivalRules: []ArchivalRule{
 				{
-					Kind:         "mimetype",
+					Kind:         "default",
 					Pattern:      "",
 					ArchivalTool: "do_nothing",
 				},
@@ -500,7 +500,7 @@ func TestFindArchivalTool(t *testing.T) {
 					ArchivalTool: "tool2",
 				},
 				{
-					Kind:         "mimetype",
+					Kind:         "default",
 					Pattern:      "",
 					ArchivalTool: "default",
 				},
@@ -525,7 +525,7 @@ func TestFindArchivalTool(t *testing.T) {
 					ArchivalTool: "direct_download",
 				},
 				{
-					Kind:         "mimetype",
+					Kind:         "default",
 					Pattern:      "",
 					ArchivalTool: "default",
 				},
@@ -550,7 +550,7 @@ func TestFindArchivalTool(t *testing.T) {
 					ArchivalTool: "tool2",
 				},
 				{
-					Kind:         "mimetype",
+					Kind:         "default",
 					Pattern:      "",
 					ArchivalTool: "default",
 				},
@@ -570,7 +570,7 @@ func TestFindArchivalTool(t *testing.T) {
 					ArchivalTool: "tool1",
 				},
 				{
-					Kind:         "mimetype",
+					Kind:         "default",
 					Pattern:      "",
 					ArchivalTool: "default",
 				},
@@ -579,6 +579,60 @@ func TestFindArchivalTool(t *testing.T) {
 
 		result := processor.findArchivalTool("https://other.com/file.pdf", "application/pdf", config)
 		assert.Equal(t, "default", result, "Default rule should match when no other rules match")
+	})
+
+	t.Run("default rule matches correctly after other rules are checked", func(t *testing.T) {
+		config := &configuration{
+			ArchivalRules: []ArchivalRule{
+				{
+					Kind:         "hostname",
+					Pattern:      "*.example.com",
+					ArchivalTool: "specific_tool",
+				},
+				{
+					Kind:         "mimetype",
+					Pattern:      "image/*",
+					ArchivalTool: "image_tool",
+				},
+				{
+					Kind:         "default",
+					Pattern:      "",
+					ArchivalTool: "default_tool",
+				},
+			},
+		}
+
+		// Test cases where other rules should match first (default should NOT be used)
+		t.Run("other rules match first", func(t *testing.T) {
+			// Hostname rule should match
+			result := processor.findArchivalTool("https://www.example.com/file.pdf", "application/pdf", config)
+			assert.Equal(t, "specific_tool", result, "Hostname rule should match, not default rule")
+
+			// MIME type rule should match
+			result = processor.findArchivalTool("https://other.com/image.png", "image/png", config)
+			assert.Equal(t, "image_tool", result, "MIME type rule should match, not default rule")
+		})
+
+		// Test cases where no other rules match (default should match)
+		testCases := []struct {
+			name     string
+			url      string
+			mimeType string
+		}{
+			{"no matching hostname or MIME", "https://other.com/file.pdf", "application/pdf"},
+			{"different hostname", "https://github.com/page.html", "text/html"},
+			{"subdomain hostname not matching pattern", "https://www.test.com/file.pdf", "application/pdf"},
+			{"different MIME type not matching pattern", "https://test.com/file.json", "application/json"},
+			{"empty MIME type", "https://test.com/file", ""},
+			{"invalid URL hostname", "not-a-valid-url", "application/pdf"},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				result := processor.findArchivalTool(tc.url, tc.mimeType, config)
+				assert.Equal(t, "default_tool", result, "Default rule should match when no other rules match for URL: %s, MIME: %s", tc.url, tc.mimeType)
+			})
+		}
 	})
 
 	t.Run("rule ordering - exact match before wildcard", func(t *testing.T) {
@@ -650,7 +704,7 @@ func TestFindArchivalTool(t *testing.T) {
 					ArchivalTool: "mimetype_tool",
 				},
 				{
-					Kind:         "mimetype",
+					Kind:         "default",
 					Pattern:      "",
 					ArchivalTool: "default",
 				},

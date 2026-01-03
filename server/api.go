@@ -100,12 +100,8 @@ func (p *Plugin) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var requestConfig struct {
-		ArchivalRules    []ArchivalRule `json:"archivalRules"`
-		MimeTypeMappings []struct {
-			MimeTypePattern string `json:"mimeTypePattern"`
-			ArchivalTool    string `json:"archivalTool"`
-		} `json:"mimeTypeMappings"` // For backward compatibility
-		DefaultArchivalTool string `json:"defaultArchivalTool"`
+		ArchivalRules       []ArchivalRule `json:"archivalRules"`
+		DefaultArchivalTool string         `json:"defaultArchivalTool"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&requestConfig); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -117,20 +113,7 @@ func (p *Plugin) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 		requestConfig.DefaultArchivalTool = "do_nothing"
 	}
 
-	// Migrate old format to new format if needed
 	archivalRules := requestConfig.ArchivalRules
-	if len(archivalRules) == 0 && len(requestConfig.MimeTypeMappings) > 0 {
-		// Migrate old format to new format
-		archivalRules = make([]ArchivalRule, len(requestConfig.MimeTypeMappings))
-		for i, mapping := range requestConfig.MimeTypeMappings {
-			archivalRules[i] = ArchivalRule{
-				Kind:         "mimetype",
-				Pattern:      mapping.MimeTypePattern,
-				ArchivalTool: mapping.ArchivalTool,
-			}
-		}
-		p.API.LogInfo("Migrated MIME type mappings to archival rules", "count", len(archivalRules))
-	}
 
 	// Validate that each rule has required fields
 	for i, rule := range archivalRules {
@@ -138,12 +121,18 @@ func (p *Plugin) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("Rule at index %d must have a kind (hostname or mimetype)", i), http.StatusBadRequest)
 			return
 		}
+		// Reject "default" kind - it's system-generated only
+		if rule.Kind == "default" {
+			http.Error(w, fmt.Sprintf("Rule at index %d has invalid kind 'default'. The default rule is system-generated and cannot be created by users", i), http.StatusBadRequest)
+			return
+		}
 		if rule.Kind != "hostname" && rule.Kind != "mimetype" {
 			http.Error(w, fmt.Sprintf("Rule at index %d has invalid kind '%s'. Must be 'hostname' or 'mimetype'", i, rule.Kind), http.StatusBadRequest)
 			return
 		}
+		// Require pattern for hostname and mimetype rules
 		if rule.Pattern == "" {
-			http.Error(w, fmt.Sprintf("Rule at index %d must have a pattern", i), http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("Rule at index %d (kind: %s) must have a pattern", i, rule.Kind), http.StatusBadRequest)
 			return
 		}
 		if rule.ArchivalTool == "" {

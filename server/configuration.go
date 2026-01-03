@@ -32,9 +32,8 @@ type configuration struct {
 // rawConfiguration is used to load the raw config from Mattermost
 // ArchivalRules is stored as a JSON string for custom settings
 // The JSON tag must match the key in plugin.json exactly
-// Since DefaultArchivalTool is now part of the custom setting, we don't need it here
 type rawConfiguration struct {
-	MimeTypeMappings string `json:"MimeTypeMappings"` // Custom setting stored as JSON string containing both rules and default tool (kept for backward compatibility)
+	MimeTypeMappings string `json:"MimeTypeMappings"` // Custom setting stored as JSON string containing both rules and default tool
 }
 
 // Clone deep copies the configuration to handle the slice field.
@@ -72,6 +71,8 @@ func (p *Plugin) getConfiguration() *configuration {
 			config.ArchivalRules = []ArchivalRule{}
 		}
 	} else {
+		// Filter out any default rules that might exist (from old format or migration)
+		archivalRules = p.filterDefaultRules(archivalRules)
 		config.ArchivalRules = archivalRules
 		p.API.LogDebug("Loaded archival rules from KV store", "count", len(archivalRules))
 	}
@@ -92,6 +93,14 @@ func (p *Plugin) getConfiguration() *configuration {
 		// Fallback if nothing is set
 		config.DefaultArchivalTool = "do_nothing"
 	}
+
+	// Append synthetic default rule with kind "default" (system-generated)
+	// This ensures there's always a fallback rule that matches everything
+	config.ArchivalRules = append(config.ArchivalRules, ArchivalRule{
+		Kind:         "default",
+		Pattern:      "", // Not used for default rules
+		ArchivalTool: config.DefaultArchivalTool,
+	})
 
 	return config
 }
@@ -138,14 +147,9 @@ func (p *Plugin) OnConfigurationChange() error {
 
 	if rawConfig.MimeTypeMappings != "" {
 		// The custom setting value is a JSON string containing the full config
-		// Try to parse as new format first (archivalRules), then fall back to old format (mimeTypeMappings) for migration
 		var customConfig struct {
-			ArchivalRules    []ArchivalRule `json:"archivalRules"`
-			MimeTypeMappings []struct {
-				MimeTypePattern string `json:"mimeTypePattern"`
-				ArchivalTool    string `json:"archivalTool"`
-			} `json:"mimeTypeMappings"` // For backward compatibility
-			DefaultArchivalTool string `json:"defaultArchivalTool"`
+			ArchivalRules       []ArchivalRule `json:"archivalRules"`
+			DefaultArchivalTool string         `json:"defaultArchivalTool"`
 		}
 		if err := json.Unmarshal([]byte(rawConfig.MimeTypeMappings), &customConfig); err != nil {
 			p.API.LogWarn("Failed to parse custom setting value, will use KV store", "error", err.Error())
@@ -163,23 +167,14 @@ func (p *Plugin) OnConfigurationChange() error {
 			}
 		} else {
 			// Successfully parsed from custom setting
-			if len(customConfig.ArchivalRules) > 0 {
-				// New format
-				archivalRules = customConfig.ArchivalRules
-			} else if len(customConfig.MimeTypeMappings) > 0 {
-				// Old format - migrate to new format
-				archivalRules = make([]ArchivalRule, len(customConfig.MimeTypeMappings))
-				for i, mapping := range customConfig.MimeTypeMappings {
-					archivalRules[i] = ArchivalRule{
-						Kind:         "mimetype",
-						Pattern:      mapping.MimeTypePattern,
-						ArchivalTool: mapping.ArchivalTool,
-					}
-				}
-				p.API.LogInfo("Migrated MIME type mappings to archival rules", "count", len(archivalRules))
-			}
+			archivalRules = customConfig.ArchivalRules
 			if customConfig.DefaultArchivalTool != "" {
 				defaultArchivalTool = customConfig.DefaultArchivalTool
+			}
+			// Validate rules before saving
+			if err := p.validateArchivalRules(archivalRules); err != nil {
+				p.API.LogError("Invalid archival rules in configuration", "error", err.Error())
+				return errors.Wrap(err, "invalid archival rules")
 			}
 			// Save to KV store for consistency (both rules and default tool)
 			if err := p.saveArchivalRules(archivalRules); err != nil {
@@ -211,17 +206,13 @@ func (p *Plugin) OnConfigurationChange() error {
 		}
 	}
 
-	// Ensure there's always a default rule at the end (empty pattern)
-	if len(archivalRules) == 0 || archivalRules[len(archivalRules)-1].Pattern != "" {
-		// Add default rule if it doesn't exist
-		archivalRules = append(archivalRules, ArchivalRule{
-			Kind:         "mimetype",
-			Pattern:      "", // Empty pattern means always match
-			ArchivalTool: defaultArchivalTool,
-		})
-	} else {
-		// Update existing default rule
-		archivalRules[len(archivalRules)-1].ArchivalTool = defaultArchivalTool
+	// Filter out any default rules that might exist (users shouldn't create them)
+	archivalRules = p.filterDefaultRules(archivalRules)
+
+	// Validate rules before using them
+	if err := p.validateArchivalRules(archivalRules); err != nil {
+		p.API.LogError("Invalid archival rules in configuration", "error", err.Error())
+		return errors.Wrap(err, "invalid archival rules")
 	}
 
 	// Create the configuration struct
@@ -236,7 +227,6 @@ func (p *Plugin) OnConfigurationChange() error {
 }
 
 const archivalRulesKey = "archival_rules"
-const mimeTypeMappingsKey = "mime_type_mappings" // Kept for backward compatibility migration
 const defaultArchivalToolKey = "default_archival_tool"
 
 // saveArchivalRules saves archival rules to KV store
@@ -255,7 +245,6 @@ func (p *Plugin) saveArchivalRules(rules []ArchivalRule) error {
 }
 
 // loadArchivalRules loads archival rules from KV store
-// Also attempts to migrate old mimeTypeMappings if archivalRules don't exist
 func (p *Plugin) loadArchivalRules() ([]ArchivalRule, error) {
 	data, appErr := p.API.KVGet(archivalRulesKey)
 	if appErr != nil {
@@ -270,39 +259,49 @@ func (p *Plugin) loadArchivalRules() ([]ArchivalRule, error) {
 		return rules, nil
 	}
 
-	// Try to migrate from old format
-	oldData, appErr := p.API.KVGet(mimeTypeMappingsKey)
-	if appErr != nil {
-		return []ArchivalRule{}, nil
-	}
-
-	if oldData != nil {
-		// Old format - migrate to new format
-		var oldMappings []struct {
-			MimeTypePattern string `json:"mimeTypePattern"`
-			ArchivalTool    string `json:"archivalTool"`
-		}
-		if err := json.Unmarshal(oldData, &oldMappings); err == nil {
-			rules := make([]ArchivalRule, len(oldMappings))
-			for i, mapping := range oldMappings {
-				rules[i] = ArchivalRule{
-					Kind:         "mimetype",
-					Pattern:      mapping.MimeTypePattern,
-					ArchivalTool: mapping.ArchivalTool,
-				}
-			}
-			// Save in new format
-			if err := p.saveArchivalRules(rules); err != nil {
-				p.API.LogWarn("Failed to save migrated archival rules", "error", err.Error())
-			} else {
-				p.API.LogInfo("Migrated MIME type mappings to archival rules", "count", len(rules))
-			}
-			return rules, nil
-		}
-	}
-
 	// No rules stored yet, return empty slice
 	return []ArchivalRule{}, nil
+}
+
+// filterDefaultRules removes any default rules from the rules slice
+// This is used to clean up old format rules or rules that shouldn't be stored
+func (p *Plugin) filterDefaultRules(rules []ArchivalRule) []ArchivalRule {
+	filtered := make([]ArchivalRule, 0, len(rules))
+	for _, rule := range rules {
+		// Filter out rules with kind "default" or empty pattern (old default rule format)
+		if rule.Kind != "default" && rule.Pattern != "" {
+			filtered = append(filtered, rule)
+		}
+	}
+	return filtered
+}
+
+// validateArchivalRules validates that all rules are valid
+// Returns an error if any rule is invalid
+func (p *Plugin) validateArchivalRules(rules []ArchivalRule) error {
+	for i, rule := range rules {
+		// Check that rule has a kind
+		if rule.Kind == "" {
+			return errors.Errorf("rule at index %d must have a kind (hostname or mimetype)", i)
+		}
+		// Reject "default" kind - it's system-generated only
+		if rule.Kind == "default" {
+			return errors.Errorf("rule at index %d has invalid kind 'default'. The default rule is system-generated and cannot be created by users", i)
+		}
+		// Check that kind is valid
+		if rule.Kind != "hostname" && rule.Kind != "mimetype" {
+			return errors.Errorf("rule at index %d has invalid kind '%s'. Must be 'hostname' or 'mimetype'", i, rule.Kind)
+		}
+		// Require pattern for hostname and mimetype rules
+		if rule.Pattern == "" {
+			return errors.Errorf("rule at index %d (kind: %s) must have a pattern", i, rule.Kind)
+		}
+		// Check that archival tool is specified
+		if rule.ArchivalTool == "" {
+			return errors.Errorf("rule at index %d must have an archival tool", i)
+		}
+	}
+	return nil
 }
 
 // saveDefaultArchivalTool saves the default archival tool to KV store

@@ -315,7 +315,7 @@ func (p *ArchiveProcessor) findArchivalTool(urlStr, mimeType string, config *con
 	p.api.LogDebug("Finding archival tool", "mimeType", mimeType, "hostname", hostname, "rulesCount", len(config.ArchivalRules))
 
 	// Check archival rules in order
-	// The last rule should have an empty pattern and will always match (default rule)
+	// The last rule should have kind "default" and will always match (system-generated default rule)
 	for i, rule := range config.ArchivalRules {
 		p.api.LogDebug("Checking rule", "index", i, "kind", rule.Kind, "pattern", rule.Pattern, "tool", rule.ArchivalTool)
 		if p.ruleMatches(hostname, mimeType, rule) {
@@ -330,17 +330,11 @@ func (p *ArchiveProcessor) findArchivalTool(urlStr, mimeType string, config *con
 }
 
 // ruleMatches checks if a rule matches the given hostname and mimetype
-// A rule matches based on its Kind: "hostname" checks hostname, "mimetype" checks mimetype
-// An empty pattern means the rule always matches (used for the default rule)
+// A rule matches based on its Kind: "hostname" checks hostname, "mimetype" checks mimetype, "default" always matches
 func (p *ArchiveProcessor) ruleMatches(hostname, mimeType string, rule ArchivalRule) bool {
 	// Validate rule has required fields
 	if rule.Kind == "" {
 		return false
-	}
-
-	// Empty pattern means always match (default rule)
-	if rule.Pattern == "" {
-		return true
 	}
 
 	// Match based on rule kind
@@ -349,6 +343,9 @@ func (p *ArchiveProcessor) ruleMatches(hostname, mimeType string, rule ArchivalR
 		return p.hostnameMatches(hostname, rule.Pattern)
 	case "mimetype":
 		return p.mimeTypeMatches(mimeType, rule.Pattern)
+	case "default":
+		// Default rule always matches
+		return true
 	default:
 		// Unknown kind, don't match
 		return false

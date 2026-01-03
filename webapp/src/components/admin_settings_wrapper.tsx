@@ -58,37 +58,6 @@ const AdminSettingsWrapper: React.FC<CustomSettingProps> = ({id, value, onChange
     const [loading, setLoading] = useState(true);
     const [error] = useState<string | null>(null);
 
-    // Helper function to migrate old format rules to new format
-    const migrateRules = (rules: any[]): ArchivalRule[] => {
-        return rules.map((rule: any) => {
-            if (rule.kind && rule.pattern) {
-                // New format
-                return rule;
-            } else if (rule.hostnamePattern) {
-                // Old format with hostname
-                return {
-                    kind: 'hostname',
-                    pattern: rule.hostnamePattern,
-                    archivalTool: rule.archivalTool,
-                };
-            } else if (rule.mimeTypePattern) {
-                // Old format with mimetype
-                return {
-                    kind: 'mimetype',
-                    pattern: rule.mimeTypePattern,
-                    archivalTool: rule.archivalTool,
-                };
-            }
-
-            // Fallback - shouldn't happen
-            return {
-                kind: 'mimetype',
-                pattern: '',
-                archivalTool: rule.archivalTool || 'do_nothing',
-            };
-        });
-    };
-
     // Load configuration only once on mount from Mattermost value prop
     // This prevents reloading during edits
     useEffect(() => {
@@ -97,17 +66,9 @@ const AdminSettingsWrapper: React.FC<CustomSettingProps> = ({id, value, onChange
                 try {
                     const parsed = JSON.parse(value);
                     if (parsed && typeof parsed === 'object') {
-                        // Handle migration from old format
                         let archivalRules: ArchivalRule[] = [];
                         if (parsed.archivalRules && Array.isArray(parsed.archivalRules)) {
-                            archivalRules = migrateRules(parsed.archivalRules);
-                        } else if (parsed.mimeTypeMappings && Array.isArray(parsed.mimeTypeMappings)) {
-                            // Migrate old format to new format
-                            archivalRules = parsed.mimeTypeMappings.map((mapping: {mimeTypePattern: string; archivalTool: string}) => ({
-                                kind: 'mimetype',
-                                pattern: mapping.mimeTypePattern,
-                                archivalTool: mapping.archivalTool,
-                            }));
+                            archivalRules = parsed.archivalRules;
                         }
 
                         // Ensure there's always a default rule at the end (empty pattern)
