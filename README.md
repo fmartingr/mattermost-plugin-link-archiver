@@ -2,7 +2,7 @@
 
 [![Build Status](https://github.com/fmartingrmattermost-plugin-link-archiver/actions/workflows/ci.yml/badge.svg)](https://github.com/fmartingrmattermost-plugin-link-archiver/actions/workflows/ci.yml)
 
-A Mattermost plugin that automatically archives links posted to channels. The plugin supports multiple archival methods configurable by MIME type, with intelligent deduplication and inline preview capabilities.
+A Mattermost plugin that automatically archives links posted to channels. The plugin supports multiple archival methods configurable by hostname and MIME type rules, with intelligent deduplication and inline preview capabilities.
 
 ## Features
 
@@ -11,7 +11,7 @@ A Mattermost plugin that automatically archives links posted to channels. The pl
   - **Direct Download**: Downloads files directly (PDFs, images, documents, etc.)
   - **Obelisk**: Archives HTML pages as single, self-contained HTML files with embedded assets
   - **Do Nothing**: Skip archiving for specific content types
-- **MIME Type Mapping**: Configure which archival tool to use for different MIME types using wildcards (e.g., `image/*`, `application/pdf`)
+- **Rule-Based Matching**: Configure archival rules that match on hostname and/or MIME type patterns using wildcards (e.g., `*.example.com`, `image/*`). Rules are evaluated in order, and the first matching rule determines which archival tool to use.
 - **Intelligent Deduplication**:
   - Per-post deduplication to avoid re-archiving the same URL in the same post
   - Global deduplication using ETag and content hash comparison
@@ -48,34 +48,48 @@ make
 
 Navigate to **System Console > Plugins > Link Archiver** to configure the plugin.
 
-#### MIME Type Mappings
+#### Archival Rules
 
-Configure which archival tool to use for different MIME types. You can use:
-- **Exact matches**: `application/pdf` → `direct_download`
-- **Wildcards**: `image/*` → `direct_download` (matches all image types)
-- **Text HTML**: `text/html` → `obelisk` (archives web pages)
+Configure archival rules that match on hostname and/or MIME type patterns. Rules are evaluated in order, and the first matching rule determines which archival tool to use.
+
+**Hostname Patterns:**
+- **Exact matches**: `example.com` → matches exactly `example.com`
+- **Wildcards**: `*.example.com` → matches any subdomain (e.g., `www.example.com`, `api.example.com`)
+
+**MIME Type Patterns:**
+- **Exact matches**: `application/pdf` → matches exactly `application/pdf`
+- **Wildcards**: `image/*` → matches all image types (e.g., `image/jpeg`, `image/png`)
+
+**Rule Matching:**
+- Rules are evaluated in order from top to bottom
+- The first rule that matches (both hostname and MIME type patterns if specified) determines the archival tool
+- At least one pattern (hostname or MIME type) must be specified per rule
+- If both patterns are specified, both must match (AND logic)
 
 #### Default Archival Tool
 
-Set the default tool to use when no MIME type mapping matches. Options:
+Set the default tool to use when no archival rule matches. This acts as the final fallback rule. Options:
 - `direct_download`: Download files directly
 - `obelisk`: Archive HTML pages as single files
 - `do_nothing`: Skip archiving
 
 ### Example Configuration
 
-**MIME Type Mappings:**
-- `application/pdf` → `direct_download`
-- `image/*` → `direct_download`
-- `text/html` → `obelisk`
-- `application/vnd.openxmlformats-officedocument.*` → `direct_download`
+**Archival Rules (evaluated in order):**
+1. Hostname: `*.github.com`, MIME Type: `text/html` → `obelisk`
+2. Hostname: `*.example.com`, MIME Type: (empty) → `direct_download`
+3. Hostname: (empty), MIME Type: `application/pdf` → `direct_download`
+4. Hostname: (empty), MIME Type: `image/*` → `direct_download`
+5. Hostname: (empty), MIME Type: `text/html` → `obelisk`
 
 **Default Tool:** `do_nothing`
 
 This configuration will:
-- Archive PDFs and images using direct download
-- Archive HTML pages using Obelisk (creating `.obelisk.html` files)
-- Archive Office documents using direct download
+- Archive HTML pages from GitHub using Obelisk
+- Archive any content from example.com subdomains using direct download
+- Archive PDFs from any hostname using direct download
+- Archive images from any hostname using direct download
+- Archive HTML pages from other hostnames using Obelisk
 - Skip archiving for all other content types
 
 ## Archival Tools
@@ -125,7 +139,9 @@ Skips archiving for specific content types. Useful when you want to:
    - Compares ETags to detect unchanged content
    - Compares content hashes (SHA256) for verification
 4. **Archival**:
-   - Selects appropriate tool based on MIME type mapping
+   - Extracts hostname from URL
+   - Evaluates archival rules in order
+   - Selects appropriate tool based on first matching rule (or default tool if no rule matches)
    - Downloads/archives the content
    - Uploads to Mattermost file storage
 5. **Notification**:
@@ -256,7 +272,7 @@ The plugin uses a multi-layered deduplication approach:
 ### Plugin Not Archiving Links
 
 1. Check that the plugin is enabled in System Console > Plugins
-2. Verify configuration has a default archival tool set or MIME type mappings configured
+2. Verify configuration has a default archival tool set or archival rules configured
 3. Check plugin logs for errors: `System Console > Logs` or server logs
 4. Ensure the bot account was created successfully
 
