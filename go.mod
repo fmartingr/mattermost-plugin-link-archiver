@@ -1,12 +1,12 @@
 module github.com/fmartingrmattermost-plugin-link-archiver
 
-go 1.24.6
+go 1.24.13
 
 require (
 	github.com/go-shiori/obelisk v0.0.0-20251018085940-a77acb503b85
 	github.com/golang/mock v1.6.0
 	github.com/gorilla/mux v1.8.1
-	github.com/mattermost/mattermost/server/public v0.1.21
+	github.com/mattermost/mattermost/server/public v0.2.0
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.11.1
 )
@@ -22,6 +22,7 @@ require (
 	github.com/francoispqt/gojay v1.2.13 // indirect
 	github.com/go-asn1-ber/asn1-ber v1.5.7 // indirect
 	github.com/go-shiori/dom v0.0.0-20230515143342-73569d674e1c // indirect
+	github.com/goccy/go-yaml v1.18.0 // indirect
 	github.com/gogs/chardet v0.0.0-20211120154057-b7413eaefb8f // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/uuid v1.6.0 // indirect
